@@ -1,20 +1,22 @@
 #include "opengl.h"
-#include "ShaderSet.h"
 
-#include "glm/glm.hpp"
-#include "glm/ext.hpp"
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
+#define IMGUI_DISABLE_WIN32_FUNCTIONS
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_glfw.h"
+#include "imgui/imgui_impl_opengl3.h"
 
 #include <vector>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 #include <array>
+#include "Scene.h"
+#include "Renderer.h"
 
 #pragma comment(lib, "glfw3dll.lib")
+// #pragma comment(lib, "legacy_stdio_definitions")
 
+/*
 GLuint createShaderProgram(const char* vertexShaderSource, const char* fragmentShaderSource)
 {
 	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -353,6 +355,7 @@ void updateParticles(const float deltaTime, const GLuint vbo, const GLuint cbo, 
 	glBindBuffer(GL_ARRAY_BUFFER, tbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(texCoords[0]) * texCoords.size(), &texCoords[0], GL_DYNAMIC_DRAW);
 }
+*/
 
 void GLAPIENTRY
 MessageCallback(GLenum source,
@@ -368,107 +371,93 @@ MessageCallback(GLenum source,
 		type, severity, message);
 }
 
+std::shared_ptr<Scene> scene;
+std::shared_ptr<Renderer> renderer;
+
+void resize(GLFWwindow* window, int width, int height)
+{
+	scene->MainCamera().SetAspect(static_cast<float>(width) / static_cast<float>(height));
+	renderer->SetViewport(width, height);
+}
+
 int main(int argc, char** argv)
 {
 	glfwInit();
-	auto window = glfwCreateWindow(640, 480, "GL Particles!", nullptr, nullptr);
+	auto initialWidth = 640;
+	auto initialHeight = 480;
+	auto window = glfwCreateWindow(initialWidth, initialHeight, "GL Particles!", nullptr, nullptr);
 	glfwMakeContextCurrent(window);
 	gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress));
 
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init("#version 460");
+	ImGui::StyleColorsDark();
+	
 	glfwSwapInterval(1);
 
-	glEnable(GL_DEBUG_OUTPUT);
-	glDebugMessageCallback(MessageCallback, 0);
+	glfwSetFramebufferSizeCallback(window, resize);
 	
-	int width;
-	int height;
-	int numChannels;
-	unsigned char* pixels = stbi_load("Particle.jpg", &width, &height, &numChannels, STBI_rgb);
+	// glEnable(GL_DEBUG_OUTPUT);
+	// glDebugMessageCallback(MessageCallback, 0);
 
-	// std::cout << "Image dimensions = {" << width << "," << height << "," << numChannels << "}" << std::endl;
+	scene.reset(new Scene());
 	
-	GLuint particleTexture;
-	glGenTextures(1, &particleTexture);
-	glBindTexture(GL_TEXTURE_2D, particleTexture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	renderer.reset(new Renderer(scene));
 
-	// stbi_image_free(pixels);
-	
-	auto shaderProgram = createShaderProgram(readFile("shader.vert").str().c_str(),
-	                                         readFile("shader.frag").str().c_str());
-	auto mvpLocation = glGetUniformLocation(shaderProgram, "modelViewProjection");
-	auto positionLocation = glGetAttribLocation(shaderProgram, "inPosition");
-	auto colorLocation = glGetAttribLocation(shaderProgram, "inColor");
-	auto texCoordLocation = glGetAttribLocation(shaderProgram, "inTexCoord");
-	auto particleTextureLocation = glGetUniformLocation(shaderProgram, "particleTexture");
-	
-	glm::mat4 model = glm::mat4(1.0f);
-	glm::mat4 view = glm::lookAt(glm::vec3{0.0f, 0.0f, 0.25f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+	const auto cubeMesh = scene->AddMesh("cube/cube.obj", "", "cube/");
 
-	GLuint vbo;
-	GLuint cbo;
-	GLuint tbo;
-	glGenBuffers(1, &vbo);
-	glGenBuffers(1, &cbo);
-	glGenBuffers(1, &tbo);
+	constexpr int MAX_X = 1;
+	constexpr int MAX_Z = 1;
 	
-	resetParticles();
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	// glDisable(GL_PROGRAM_POINT_SIZE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	// glPointSize(3.0f);
-	// glDisable(GL_CULL_FACE);
+	for (auto x = 0; x < MAX_X; ++x)
+	{
+		for (auto z = 0; z < MAX_Z; ++z)
+		{			
+			const auto cubeTransform = scene->AddTransform({ {1.0f, 1.0f, 1.0f}, {}, {}, {-(MAX_X - 1) + (static_cast<float>(x) * 1.25f), 0.0f, -(MAX_Z - 1)+ (static_cast<float>(z) * 1.25f)} });
+			const auto cubeInstance = scene->AddInstance({ cubeMesh, cubeTransform });
+		}
+	}
+	
 
-	// float vertices[18] = { -0.5f, -0.5f, 0.0f, 0.5f, -0.5f, 0.0f, -0.5f, 0.5f, 0.0f, 0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 0.0f, -0.5f, 0.5f, 0.0f };
-	// glBindBuffer(GL_ARRAY_BUFFER, vbo);
-	// glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3 * 6, &vertices, GL_STATIC_DRAW);
-	// float colors[24] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-	// glBindBuffer(GL_ARRAY_BUFFER, cbo);
-	// glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 4 * 6, &colors, GL_STATIC_DRAW);
+	const auto mainCamera = scene->AddCamera({
+		{2.0f, 1.5f, 2.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, glm::radians(70.0f), {}, 0.1f,
+		200.0f
+	});
+	scene->SetMainCameraId(mainCamera);
+
+	resize(window, initialWidth, initialHeight);
+
+	auto materialAmbient = glm::vec3(1.0f);
+	auto materialDiffuse = glm::vec3(1.0f);
+	auto materialSpecular = glm::vec3(0.2f);
 	while (!glfwWindowShouldClose(window))
 	{
-		static float lastTime = glfwGetTime();
-		float curTime = glfwGetTime();
-		float deltaTime = curTime = lastTime;
-		lastTime = curTime;
-
-		updateParticles(deltaTime, vbo, cbo, tbo);
-
-		int width, height;
-		glfwGetFramebufferSize(window, &width, &height);
-		glViewport(0, 0, width, height);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glm::mat4 proj = glm::perspective(45.0f, (float)width / (float)height, 0.1f, 100.0f);
-
-		glUseProgram(shaderProgram);
-		const glm::mat4 mvp = proj * view * model;
-		glUniformMatrix4fv(mvpLocation, 1, GL_FALSE, glm::value_ptr(mvp));
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, particleTexture);
-		glUniform1i(particleTextureLocation, 0);
-		
-		glEnableVertexAttribArray(positionLocation);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo);
-		glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE,
-		                      0, (void*)0);
-		glEnableVertexAttribArray(colorLocation);
-		glBindBuffer(GL_ARRAY_BUFFER, cbo);
-		glVertexAttribPointer(colorLocation, 4, GL_FLOAT, GL_FALSE,
-		                      0, (void*)0);
-		glEnableVertexAttribArray(texCoordLocation);
-		glBindBuffer(GL_ARRAY_BUFFER, tbo);
-		glVertexAttribPointer(texCoordLocation, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
-		glDrawArrays(GL_TRIANGLES, 0, numParticles * 2 * 3);
-
+		auto& material = scene->Material(scene->Mesh(cubeMesh).MaterialIDs()[0]);
+		material.SetAmbient(materialAmbient);
+		material.SetDiffuse(materialDiffuse);
+		material.SetSpecular(materialSpecular);
+		renderer->RenderFrame();
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+		ImGui::Begin("Demo window", {}, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+		ImGui::ColorPicker3("Ambient", glm::value_ptr(materialAmbient), ImGuiColorEditFlags_Float);
+		ImGui::ColorPicker3("Diffuse", glm::value_ptr(materialDiffuse), ImGuiColorEditFlags_Float);
+		ImGui::ColorPicker3("Specular", glm::value_ptr(materialSpecular), ImGuiColorEditFlags_Float);
+		ImGui::End();
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;

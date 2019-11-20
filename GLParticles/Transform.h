@@ -1,10 +1,21 @@
 #pragma once
-#include "glm/ext/quaternion_float.hpp"
+
+#include "opengl.h"
 
 class Transform
 {
 public:
 	Transform() = default;
+
+
+	Transform(const glm::vec3& scale, const glm::vec3& rotationOrigin, const glm::quat& rotation,
+		const glm::vec3& translation)
+		: scale_(scale),
+		  rotationOrigin_(rotationOrigin),
+		  rotation_(rotation),
+		  translation_(translation)
+	{
+	}
 
 	glm::vec3 Scale() const
 	{

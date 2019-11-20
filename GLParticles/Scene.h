@@ -2,32 +2,37 @@
 
 #include "opengl.h"
 
+#include <array>
+#include <map>
+
 #include "packed_freelist.h"
 #include "Material.h"
 #include "Mesh.h"
 #include "Transform.h"
 #include "Camera.h"
+#include "Texture.h"
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
+#include "Vertex.h"
+#include <unordered_map>
 
 class Scene
 {
 public:
-	Scene() : materials_(256), meshes_(256), transforms_(256), instances_(256), cameras_(256)
+	Scene() : textures_(256), materials_(256), meshes_(256), transforms_(256), instances_(256), cameras_(256)
 	{
 	}
-
-	packed_freelist<Material::DiffuseMap> DiffuseMaps() const
+	
+	uint32_t AddTexture(const Texture& texture)
 	{
-		return diffuseMaps_;
+		return textures_.insert(texture);
 	}
 
-	Material::DiffuseMap& DiffuseMap(const uint32_t id) const
+	Texture& Texture(const uint32_t id)
 	{
-		return diffuseMaps_[id];
-	}
-
-	uint32_t AddDiffuseMap(const Material::DiffuseMap& diffuseMap)
-	{
-		return diffuseMaps_.insert(diffuseMap);
+		return textures_[id];
 	}
 	
 	packed_freelist<Material> Materials() const
@@ -90,97 +95,41 @@ public:
 		return mainCameraId_;
 	}
 
-	void AddMesh(const std::string& filename, const std::string& materialDir)
+	void SetMainCameraId(uint32_t mainCameraId)
+	{
+		mainCameraId_ = mainCameraId;
+	}
+
+	uint32_t AddMesh(const std::string& filename, const std::string& materialDir, const std::string& textureDir)
 	{
 		::Mesh mesh;
-		tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
-		std::string warn;
-		std::string err;
-		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-			filename.c_str(), materialDir.c_str(), true))
+
+		tinyobj::ObjReader objectReader;
+
+		tinyobj::ObjReaderConfig config;
+		config.mtl_search_path = materialDir;
+		config.triangulate = true;
+		if (!objectReader.ParseFromFile(filename, config))
 		{
-			std::cerr << "Failed to load model file [" << filename << "]: " << err << std::endl;
-			return;
+			std::cerr << "Failed to load model file [" << filename << "]." << std::endl << "\tWarning: " << objectReader
+				.Warning() << std::endl << "\tError: " << objectReader.Error() << std::endl;
+			return 0xFFFF;
 		}
 
-		for (const auto& shape : shapes)
-		{
-			
-			if (!shape.mesh.num_face_vertices.empty())
-			{
-				const auto& numVertices = shape.mesh.num_face_vertices;
-				glBindBuffer(GL_ARRAY_BUFFER, *mesh.PositionVbo());
-				glBufferData(GL_ARRAY_BUFFER,
-					numVertices.size() * sizeof(float) * 3,
-					attrib.vertices.data(), GL_STATIC_DRAW);
-				mesh.SetNumVertices(attrib.vertices.size());
-				glBindBuffer(GL_ARRAY_BUFFER, 0);
-			}
+		const auto& attrib = objectReader.GetAttrib();
+		const auto hasTexcoords = !attrib.texcoords.empty();
+		const auto hasNormals = !attrib.normals.empty();
+		
+		const auto& materials = objectReader.GetMaterials();
 
-			if (!attrib.texcoords.empty())
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, *mesh.TexcoordVbo());
-				glBufferData(GL_ARRAY_BUFFER,
-					attrib.texcoords.size() * sizeof(float),
-					attrib.texcoords.data(), GL_STATIC_DRAW);
-				glBindBuffer(GL_ARRAY_BUFFER, 0);
-			}
-
-			if (!attrib.normals.empty())
-			{
-				glBindBuffer(GL_ARRAY_BUFFER, *mesh.NormalVbo());
-				glBufferData(GL_ARRAY_BUFFER,
-					attrib.normals.size() * sizeof(float),
-					attrib.normals.data(), GL_STATIC_DRAW);
-				glBindBuffer(GL_ARRAY_BUFFER, 0);
-			}
-
-			if (!shapes[0].mesh.indices.empty())
-			{
-				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *mesh.IndexVbo());
-				glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-					shapes[0].mesh.indices.size() * sizeof(unsigned int),
-					shapes[0].mesh.indices.data(), GL_STATIC_DRAW);
-				mesh.SetNumIndices(shapes[0].mesh.indices.size());
-				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-			}
-
-			glBindVertexArray(*mesh.Vao());
-
-			glBindBuffer(GL_ARRAY_BUFFER, *mesh.PositionVbo());
-			glVertexAttribPointer(SCENE_POSITION_ATTRIB_LOCATION, 3, GL_FLOAT, GL_FALSE,
-				sizeof(float) * 3, nullptr);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-			glEnableVertexAttribArray(SCENE_POSITION_ATTRIB_LOCATION);
-
-			glBindBuffer(GL_ARRAY_BUFFER, *mesh.TexcoordVbo());
-			glVertexAttribPointer(SCENE_TEXCOORD_ATTRIB_LOCATION, 2, GL_FLOAT, GL_FALSE,
-				sizeof(float) * 2, nullptr);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-			glEnableVertexAttribArray(SCENE_TEXCOORD_ATTRIB_LOCATION);
-
-			glBindBuffer(GL_ARRAY_BUFFER, *mesh.NormalVbo());
-			glVertexAttribPointer(SCENE_NORMAL_ATTRIB_LOCATION, 3, GL_FLOAT, GL_FALSE,
-				sizeof(float) * 3, nullptr);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-			glEnableVertexAttribArray(SCENE_NORMAL_ATTRIB_LOCATION);
-
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *mesh.IndexVbo());
-
-			glBindVertexArray(0);
-		}
 		std::map<std::string, uint32_t> diffuseMapCache;
+		std::map<std::string, uint32_t> normalMapCache;
 		std::vector<uint32_t> newMaterialIDs;
 		for (auto& material : materials)
 		{
-			::Material newMaterial(material.name, *reinterpret_cast<std::array<float, 3>*>(&material.ambient),
-				*reinterpret_cast<std::array<float, 3>*>(&material.diffuse),
-				*reinterpret_cast<std::array<float, 3>*>(&material.specular), material.shininess);
+			::Material newMaterial(material.name, glm::make_vec3(material.ambient),
+			                       glm::make_vec3(material.diffuse),
+			                       glm::make_vec3(material.specular), material.shininess);
 
 			if (!material.diffuse_texname.empty())
 			{
@@ -188,57 +137,211 @@ public:
 
 				if (cachedTexture != std::end(diffuseMapCache))
 				{
-					newMaterial.SetDiffuseMapId(cachedTexture->second);
+					newMaterial.SetDiffuseTexture(cachedTexture->second);
 				}
 				else
 				{
-					std::string diffuse_texname_full = materialDir + material.diffuse_texname;
-					int x, y, comp;
-					stbi_set_flip_vertically_on_load(1);
-					stbi_uc* pixels = stbi_load(diffuse_texname_full.c_str(), &x, &y, &comp, 4);
-					stbi_set_flip_vertically_on_load(0);
-
-					if (!pixels)
-					{
-						std::cerr << "stbi_load(" << diffuse_texname_full << ") failed with: " << stbi_failure_reason() << std::endl;
-					}
-					else
-					{
-						float maxAnisotropy;
-						glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
-
-						GLuint newDiffuseMapTextureID;
-						glGenTextures(1, &newDiffuseMapTextureID);
-						glBindTexture(GL_TEXTURE_2D, newDiffuseMapTextureID);
-						glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, x, y, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-						glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-						glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
-						glGenerateMipmap(GL_TEXTURE_2D);
-						glBindTexture(GL_TEXTURE_2D, 0);
-
-						Material::DiffuseMap newDiffuseMap;
-						newDiffuseMap.DiffuseMapTextureID = newDiffuseMapTextureID;
-
-						auto newDiffuseMapID = AddDiffuseMap(newDiffuseMap);
-
-						diffuseMapCache.emplace(material.diffuse_texname, newDiffuseMapID);
-
-						newMaterial.SetDiffuseMapId(newDiffuseMapID);
-
-						stbi_image_free(pixels);
-					}
+					auto diffuseTextureFilename = textureDir + material.diffuse_texname;
+					::Texture diffuseTexture(diffuseTextureFilename);
+					auto textureId = AddTexture(diffuseTexture);
+					diffuseMapCache.emplace(material.diffuse_texname, textureId);
+					newMaterial.SetDiffuseTexture(textureId);
 				}
 			}
 
-			uint32_t newMaterialID = materials_.insert(newMaterial);
+			if (!material.normal_texname.empty())
+			{
+				auto cachedTexture = normalMapCache.find(material.normal_texname);
 
-			newMaterialIDs.push_back(newMaterialID);
+				if (cachedTexture != std::end(normalMapCache))
+				{
+					newMaterial.SetNormalTexture(cachedTexture->second);
+				}
+				else
+				{
+					auto normalTextureFilename = textureDir + material.normal_texname;
+					::Texture normalTexture(normalTextureFilename);
+					auto textureId = AddTexture(normalTexture);
+					normalMapCache.emplace(material.normal_texname, textureId);
+					newMaterial.SetNormalTexture(textureId);
+				}
+			}
+
+			newMaterialIDs.push_back(materials_.insert(newMaterial));
 		}
 
+		for (const auto& shape : objectReader.GetShapes())
+		{
+			std::vector<tinyobj::real_t> attributes = {};
+			std::vector<uint32_t> indices = {};
+
+			for (auto i = 0; i < shape.mesh.indices.size(); i+=3)
+			{
+				auto index1 = shape.mesh.indices[i];
+				auto index2 = shape.mesh.indices[i + 1];
+				auto index3 = shape.mesh.indices[i + 2];
+
+				auto vertex_idx1 = 3 * index1.vertex_index;
+				auto vertex_idx2 = 3 * index2.vertex_index;
+				auto vertex_idx3 = 3 * index3.vertex_index;
+				
+				const std::array<glm::vec3, 3> vertices = {
+					glm::vec3 {attrib.vertices[vertex_idx1], attrib.vertices[vertex_idx1 + 1], attrib.vertices[vertex_idx1 + 2]},
+					{attrib.vertices[vertex_idx2], attrib.vertices[vertex_idx2 + 1], attrib.vertices[vertex_idx2 + 2]},
+					{attrib.vertices[vertex_idx3], attrib.vertices[vertex_idx3 + 1], attrib.vertices[vertex_idx3 + 2]}
+				};
+
+				std::array<glm::vec2, 3> texcoords;
+
+				if (hasTexcoords)
+				{
+					auto texcoord_idx1 = 2 * index1.texcoord_index;
+					auto texcoord_idx2 = 2 * index2.texcoord_index;
+					auto texcoord_idx3 = 2 * index3.texcoord_index;
+					texcoords = {
+						glm::vec2{attrib.texcoords[texcoord_idx1], attrib.texcoords[texcoord_idx1 + 1]},
+						{attrib.texcoords[texcoord_idx2], attrib.texcoords[texcoord_idx2 + 1]},
+						{attrib.texcoords[texcoord_idx3], attrib.texcoords[texcoord_idx3 + 1]}
+					};
+				}
+
+				std::array<glm::vec3, 3> normals;
+
+				if (hasNormals)
+				{
+					auto normal_idx1 = 3 * index1.normal_index;
+					auto normal_idx2 = 3 * index2.normal_index;
+					auto normal_idx3 = 3 * index3.normal_index;
+					normals = {
+						glm::vec3{attrib.normals[normal_idx1], attrib.normals[normal_idx1 + 1], attrib.normals[normal_idx1 + 2]},
+						{attrib.normals[normal_idx2], attrib.normals[normal_idx2 + 1], attrib.normals[normal_idx2 + 2]},
+						{attrib.normals[normal_idx3], attrib.normals[normal_idx3 + 1], attrib.normals[normal_idx3 + 2]}
+					};
+				}
+
+				glm::vec3 tangent;
+				if (hasTexcoords && hasNormals)
+				{
+					const glm::vec3 edge1 = vertices[1] - vertices[0];
+					const glm::vec3 edge2 = vertices[2] - vertices[0];
+					const glm::vec2 deltaUV1 = texcoords[1] - texcoords[0];
+					const glm::vec2 deltaUV2 = texcoords[2] - texcoords[0];
+					auto f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+					tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+					tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+					tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+					tangent = glm::normalize(tangent);
+
+				}
+				
+				for (size_t v = 0; v < vertices.size(); ++v) {
+					attributes.insert(attributes.end(), {vertices[v].x, vertices[v].y, vertices[v].z});
+
+					if (hasTexcoords)
+					{
+						attributes.insert(attributes.end(), { texcoords[v].x, texcoords[v].y });
+					}
+
+					if (hasNormals)
+					{
+						attributes.insert(attributes.end(), { normals[v].x, normals[v].y, normals[v].z });
+					}
+
+					if (hasTexcoords && hasNormals)
+					{
+						attributes.insert(attributes.end(), { tangent.x, tangent.y, tangent.z });
+					}
+					indices.push_back(indices.size());
+				}
+			}
+
+			assert(!attributes.empty());
+			assert(!indices.empty());
+
+			std::cout << "Attributes: " << attributes.size() << std::endl;;
+			std::cout << "Indices: " << indices.size() << std::endl;
+
+			const GLenum valueType = sizeof(tinyobj::real_t) == sizeof(double) ? GL_DOUBLE : GL_FLOAT;
+
+			glBindVertexArray(*mesh.Vao());
+			
+			glBindBuffer(GL_ARRAY_BUFFER, *mesh.AttributeVbo());
+			glBufferData(GL_ARRAY_BUFFER,
+				attributes.size() * sizeof(float),
+				attributes.data(), GL_STATIC_DRAW);
+			mesh.SetNumVertices(indices.size());
+			
+			glVertexAttribPointer(SCENE_POSITION_ATTRIB_LOCATION, 3, valueType, GL_FALSE,
+				sizeof(tinyobj::real_t) * 11, nullptr);
+			glEnableVertexAttribArray(SCENE_POSITION_ATTRIB_LOCATION);
+			
+			glVertexAttribPointer(SCENE_TEXCOORD_ATTRIB_LOCATION, 2, valueType, GL_FALSE,
+				sizeof(tinyobj::real_t) * 11, reinterpret_cast<void*>(sizeof(tinyobj::real_t) * 3));
+			glEnableVertexAttribArray(SCENE_TEXCOORD_ATTRIB_LOCATION);
+			
+			glVertexAttribPointer(SCENE_NORMAL_ATTRIB_LOCATION, 3, valueType, GL_FALSE,
+				sizeof(tinyobj::real_t) * 11, reinterpret_cast<void*>(sizeof(tinyobj::real_t) * 5));
+			glEnableVertexAttribArray(SCENE_NORMAL_ATTRIB_LOCATION);
+
+			glVertexAttribPointer(SCENE_TANGENT_ATTRIB_LOCATION, 3, valueType, GL_FALSE, sizeof(tinyobj::real_t) * 11,
+			                      reinterpret_cast<void*>(sizeof(tinyobj::real_t) * 8));
+			glEnableVertexAttribArray(SCENE_TANGENT_ATTRIB_LOCATION);
+			
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *mesh.IndexVbo());
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+				indices.size() * sizeof(uint32_t),
+				indices.data(), GL_STATIC_DRAW);
+			mesh.SetNumIndices(indices.size());
+
+			glBindVertexArray(0);
+
+			auto numFaces = static_cast<int>(mesh.NumIndices()) / 3;
+			auto currMaterialFirstFaceIndex = 0;
+			auto& drawCommands = mesh.DrawCommands();
+			auto& materialIDs = mesh.MaterialIDs();
+			for (size_t faceIdx = 0; faceIdx < numFaces; faceIdx++)
+			{
+				auto isLastFace = faceIdx + 1 == numFaces;
+				auto isNextFaceDifferent = isLastFace || shape.mesh.material_ids[faceIdx + 1] != shape.mesh.material_ids[faceIdx];
+				if (isNextFaceDifferent)
+				{
+					DrawElementsIndirectCommand currDrawCommand;
+					currDrawCommand.count = ((faceIdx + 1) - currMaterialFirstFaceIndex) * 3;
+					currDrawCommand.primCount = 1;
+					currDrawCommand.firstIndex = currMaterialFirstFaceIndex * 3;
+					currDrawCommand.baseVertex = 0;
+					currDrawCommand.baseInstance = 0;
+
+					auto currMaterialID = newMaterialIDs[shape.mesh.material_ids[faceIdx]];
+
+					drawCommands.push_back(currDrawCommand);
+					materialIDs.push_back(currMaterialID);
+
+					currMaterialFirstFaceIndex = faceIdx + 1;
+				}
+			}
+		}
+
+		return meshes_.insert(mesh);
+	}
+
+	uint32_t AddTransform(const ::Transform transform)
+	{
+		return transforms_.insert(transform);
+	}
+
+	uint32_t AddInstance(const Mesh::Instance instance)
+	{
+		return instances_.insert(instance);
+	}
+
+	uint32_t AddCamera(const ::Camera camera)
+	{
+		return cameras_.insert(camera);
 	}
 
 private:
-	packed_freelist<Material::DiffuseMap> diffuseMaps_;
+	packed_freelist<::Texture> textures_;
 	packed_freelist<::Material> materials_;
 	packed_freelist<::Mesh> meshes_;
 	packed_freelist<::Transform> transforms_;

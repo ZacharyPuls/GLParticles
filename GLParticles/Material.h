@@ -2,20 +2,22 @@
 
 #include <string>
 #include <array>
+#include "Texture.h"
 
 class Material
 {
 public:
 	Material() = default;
 
-	Material(const std::string& name, const std::array<float, 3>& ambient, const std::array<float, 3>& diffuse,
-	         const std::array<float, 3>& specular, const float shininess)
+	Material(const std::string& name, const glm::vec3& ambient, const glm::vec3& diffuse,
+	         const glm::vec3& specular, const float shininess)
 		: name_(name),
 		  ambient_(ambient),
 		  diffuse_(diffuse),
 		  specular_(specular),
 		  shininess_(shininess),
-		  diffuseMapId_(-1)
+		  diffuseTexture_(-1),
+		  normalTexture_(-1)
 	{
 	}
 
@@ -29,32 +31,32 @@ public:
 		name_ = name;
 	}
 
-	std::array<float, 3> Ambient() const
+	glm::vec3 Ambient() const
 	{
 		return ambient_;
 	}
 
-	void SetAmbient(const std::array<float, 3>& ambient)
+	void SetAmbient(const glm::vec3& ambient)
 	{
 		ambient_ = ambient;
 	}
 
-	std::array<float, 3> Diffuse() const
+	glm::vec3 Diffuse() const
 	{
 		return diffuse_;
 	}
 
-	void SetDiffuse(const std::array<float, 3>& diffuse)
+	void SetDiffuse(const glm::vec3& diffuse)
 	{
 		diffuse_ = diffuse;
 	}
 
-	std::array<float, 3> Specular() const
+	glm::vec3 Specular() const
 	{
 		return specular_;
 	}
 
-	void SetSpecular(const std::array<float, 3>& specular)
+	void SetSpecular(const glm::vec3& specular)
 	{
 		specular_ = specular;
 	}
@@ -68,28 +70,33 @@ public:
 	{
 		shininess_ = shininess;
 	}
-
-	uint32_t DiffuseMapId() const
-	{
-		return diffuseMapId_;
-	}
-
-	void SetDiffuseMapId(uint32_t diffuseMapId)
-	{
-		diffuseMapId_ = diffuseMapId;
-	}
-
-	struct DiffuseMap
-	{
-		GLuint DiffuseMapTextureID;
-	};
 	
+	uint32_t DiffuseTexture() const
+	{
+		return diffuseTexture_;
+	}
+
+	void SetDiffuseTexture(uint32_t diffuseTexture)
+	{
+		diffuseTexture_ = diffuseTexture;
+	}
+
+	uint32_t NormalTexture() const
+	{
+		return normalTexture_;
+	}
+
+	void SetNormalTexture(uint32_t normalTexture)
+	{
+		normalTexture_ = normalTexture;
+	}
 private:
 	std::string name_;
-	std::array<float, 3> ambient_;
-	std::array<float, 3> diffuse_;
-	std::array<float, 3> specular_;
+	glm::vec3 ambient_;
+	glm::vec3 diffuse_;
+	glm::vec3 specular_;
 	float shininess_;
 
-	uint32_t diffuseMapId_;
+	uint32_t diffuseTexture_;
+	uint32_t normalTexture_;
 };

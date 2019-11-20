@@ -1,8 +1,6 @@
 #pragma once
 
 #include "opengl.h"
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
 
 #include <memory>
 #include <vector>
@@ -11,25 +9,18 @@
 
 #include "preamble.glsl"
 
-#define STBI_IMPLEMENTATION
-#include "stb/stb_image.h"
-
 class Mesh
 {
 public:
 	Mesh()
 		: vao_(new GLuint(), [](auto id) { glDeleteVertexArrays(1, id); }),
-		  positionVBO_(new GLuint(), [](auto id) { glDeleteBuffers(1, id); }),
-		  texcoordVBO_(new GLuint(), [](auto id) { glDeleteBuffers(1, id); }),
-		  normalVBO_(new GLuint(), [](auto id) { glDeleteBuffers(1, id); }),
+		  attributeVBO_(new GLuint(), [](auto id) { glDeleteBuffers(1, id); }),
 		  indexVBO_(new GLuint(), [](auto id) { glDeleteBuffers(1, id); }),
 		  numIndices_(0),
 		  numVertices_(0)
 	{
 		glGenVertexArrays(1, vao_.get());
-		glGenBuffers(1, positionVBO_.get());
-		glGenBuffers(1, texcoordVBO_.get());
-		glGenBuffers(1, normalVBO_.get());
+		glGenBuffers(1, attributeVBO_.get());
 		glGenBuffers(1, indexVBO_.get());
 	}
 
@@ -44,19 +35,9 @@ public:
 		return vao_;
 	}
 
-	std::shared_ptr<GLuint> PositionVbo() const
+	std::shared_ptr<GLuint> AttributeVbo() const
 	{
-		return positionVBO_;
-	}
-
-	std::shared_ptr<GLuint> TexcoordVbo() const
-	{
-		return texcoordVBO_;
-	}
-
-	std::shared_ptr<GLuint> NormalVbo() const
-	{
-		return normalVBO_;
+		return attributeVBO_;
 	}
 
 	std::shared_ptr<GLuint> IndexVbo() const
@@ -83,17 +64,36 @@ public:
 	{
 		numVertices_ = numVertices;
 	}
+
+
+	std::vector<DrawElementsIndirectCommand>& DrawCommands()
+	{
+		return drawCommands_;
+	}
+
+	const DrawElementsIndirectCommand& DrawCommand(const uint32_t index) const
+	{
+		return drawCommands_[index];
+	}
 	
+	std::vector<uint32_t>& MaterialIDs()
+	{
+		return materialIDs_;
+	}
+
+	void SetMaterialIDs(std::vector<uint32_t> materialIDs)
+	{
+		materialIDs_ = materialIDs;
+	}
+
 private:
 	std::shared_ptr<GLuint> vao_;
-	std::shared_ptr<GLuint> positionVBO_;
-	std::shared_ptr<GLuint> texcoordVBO_;
-	std::shared_ptr<GLuint> normalVBO_;
+	std::shared_ptr<GLuint> attributeVBO_;
 	std::shared_ptr<GLuint> indexVBO_;
 
 	GLuint numIndices_;
 	GLuint numVertices_;
 
-	std::vector<GLDrawElementsIndirectCommand> drawCommands_;
+	std::vector<DrawElementsIndirectCommand> drawCommands_;
 	std::vector<uint32_t> materialIDs_;
 };

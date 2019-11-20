@@ -1,8 +1,4 @@
 #pragma once
-#include "glm/vec3.hpp"
-#include "glm/mat4x4.hpp"
-#include "glm/ext/matrix_transform.inl"
-#include "glm/ext/matrix_clip_space.inl"
 
 class Camera
 {
@@ -29,6 +25,47 @@ public:
 	glm::mat4 Projection() const
 	{
 		return glm::perspective(fovY_, aspect_, zNear_, zFar_);
+	}
+
+
+	glm::vec3 Eye() const
+	{
+		return eye_;
+	}
+
+	void SetEye(const glm::vec3& eye)
+	{
+		eye_ = eye;
+	}
+
+	void SetTarget(const glm::vec3& target)
+	{
+		target_ = target;
+	}
+
+	void SetUp(const glm::vec3& xes)
+	{
+		up_ = xes;
+	}
+
+	void SetFovY(float fovY)
+	{
+		fovY_ = fovY;
+	}
+
+	void SetAspect(float aspect)
+	{
+		aspect_ = aspect;
+	}
+
+	void SetZNear(float zNear)
+	{
+		zNear_ = zNear;
+	}
+
+	void SetZFar(float zFar)
+	{
+		zFar_ = zFar;
 	}
 
 private:
